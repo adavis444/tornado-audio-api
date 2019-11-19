@@ -34,20 +34,18 @@ class POSTHandler(tornado.web.RequestHandler):
             filetype = name.split('.')[-1]
             data = self.request.body
             # TODO: Read data without first saving as file
-            with open('_tmp', 'wb') as f:
+            with open('.tmp', 'wb') as f:
                 f.write(data)
             if filetype == 'mp3':
-                # TODO: Make this work
-                with mutagen.mp3.Open('_tmp') as mp3_read:
-                    metadata = mp3_read.__dict__
+                mp3_read = mutagen.mp3.Open('.tmp')
+                metadata = mp3_read.info.__dict__
+                metadata['duration'] = metadata['length']
             elif filetype == 'wav':
-                with wave.open('_tmp', 'rb') as wave_read:
-                    print(wave_read.getparams())
+                with wave.open('.tmp', 'rb') as wave_read:
                     metadata = dict(wave_read.getparams()._asdict())
                 metadata['duration'] = metadata['nframes']/metadata['framerate']
             else:
                 metadata = {}
-            print(metadata)
             self.database[name] = metadata
             self.database[name]['_data'] = data
             self.set_status(201)
