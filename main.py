@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
+import tempfile
 import wave
+
 import mutagen.mp3
 import tornado.ioloop
 import tornado.web
@@ -24,6 +26,7 @@ class POSTHandler(tornado.web.RequestHandler):
         self.database = database
 
     def post(self):
+        # TODO: Process without requiring argument 'name'
         name = self.request.headers.get('name')
         if name is None:
             name = self.get_query_argument('name')
@@ -31,21 +34,22 @@ class POSTHandler(tornado.web.RequestHandler):
             self.set_status(400)
             self.write('File name already in use\n')
         else:
-            filetype = name.split('.')[-1]
             data = self.request.body
-            # TODO: Read data without first saving as file
-            with open('.tmp', 'wb') as f:
-                f.write(data)
-            if filetype == 'mp3':
-                mp3_read = mutagen.mp3.Open('.tmp')
-                metadata = mp3_read.info.__dict__
-                metadata['duration'] = metadata['length']
-            elif filetype == 'wav':
-                with wave.open('.tmp', 'rb') as wave_read:
-                    metadata = dict(wave_read.getparams()._asdict())
-                metadata['duration'] = metadata['nframes']/metadata['framerate']
-            else:
-                metadata = {}
+            with tempfile.TemporaryFile() as fp:
+                fp.write(data)
+                fp.seek(0)
+                filetype = name.split('.')[-1]
+                if filetype == 'wav':
+                    with wave.open(fp, 'rb') as wave_read:
+                        metadata = dict(wave_read.getparams()._asdict())
+                    metadata['duration'] = (metadata['nframes']
+                                            /metadata['framerate'])
+                elif filetype == 'mp3':
+                    mp3_read = mutagen.mp3.Open(fp)
+                    metadata = mp3_read.info.__dict__
+                    metadata['duration'] = metadata['length']
+                else:
+                    metadata = {}
             self.database[name] = metadata
             self.database[name]['_data'] = data
             self.set_status(201)
