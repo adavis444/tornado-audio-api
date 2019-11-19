@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+import wave
+import mutagen.mp3
 import tornado.ioloop
 import tornado.web
 from tornado import options
@@ -29,8 +31,25 @@ class POSTHandler(tornado.web.RequestHandler):
             self.set_status(400)
             self.write('File name already in use\n')
         else:
+            filetype = name.split('.')[-1]
             data = self.request.body
-            self.database[name] = {'_data': data}
+            # TODO: Read data without first saving as file
+            with open('_tmp', 'wb') as f:
+                f.write(data)
+            if filetype == 'mp3':
+                # TODO: Make this work
+                with mutagen.mp3.Open('_tmp') as mp3_read:
+                    metadata = mp3_read.__dict__
+            elif filetype == 'wav':
+                with wave.open('_tmp', 'rb') as wave_read:
+                    print(wave_read.getparams())
+                    metadata = dict(wave_read.getparams()._asdict())
+                metadata['duration'] = metadata['nframes']/metadata['framerate']
+            else:
+                metadata = {}
+            print(metadata)
+            self.database[name] = metadata
+            self.database[name]['_data'] = data
             self.set_status(201)
 
 
@@ -38,11 +57,22 @@ class GETHandler(tornado.web.RequestHandler):
     def _filter_database(self):
         filtered_names = []
         for name in self.database:
+            file_object = self.database[name]
             for arg in self.request.query_arguments:
                 if arg == 'name':
                     if self.get_query_argument('name') != name:
                         break
-                elif self.get_query_argument(arg) != self.database[name][arg]:
+                elif arg == 'minduration':
+                    if ('duration' not in file_object
+                            or float(self.get_query_argument('minduration'))
+                            > file_object['duration']):
+                        break
+                elif arg == 'maxduration':
+                    if ('duration' not in file_object
+                            or float(self.get_query_argument('maxduration'))
+                            < file_object['duration']):
+                        break
+                elif self.get_query_argument(arg) != file_object[arg]:
                     break
             else:
                 filtered_names.append(name)
@@ -61,10 +91,11 @@ class DownloadHandler(GETHandler):
                 self.write(self.database[name]['_data'])
             else:
                 self.set_status(400)
-                self.write('More than one file found.\n')
+                self.write(
+                    '{} files found.\n'.format(len(self.filtered_names)))
         else:
             self.set_status(404)
-            self.write('File with given name not found\n')
+            self.write('No files found\n')
 
 
 class ListHandler(GETHandler):
@@ -99,6 +130,5 @@ def make_app(database=None, debug=False):
 if __name__ == '__main__':
     options.parse_command_line()
     app = make_app(debug=True)
-    # TODO: Enable appropriate permissions for port 80
-    app.listen(8888)
+    app.listen(80)
     tornado.ioloop.IOLoop.current().start()
